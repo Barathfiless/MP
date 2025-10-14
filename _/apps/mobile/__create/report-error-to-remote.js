@@ -1,6 +1,4 @@
-import { serializeError } from 'serialize-error';
-
-export const reportErrorToRemote = async ({ error }) => {
+const reportErrorToRemote = async ({ error }) => {
   if (
     !process.env.EXPO_PUBLIC_LOGS_ENDPOINT ||
     !process.env.EXPO_PUBLIC_PROJECT_GROUP_ID ||
@@ -13,6 +11,8 @@ export const reportErrorToRemote = async ({ error }) => {
     return { success: false };
   }
   try {
+    // Load ESM-only dependency from CommonJS using dynamic import
+    const { serializeError } = await import('serialize-error');
     await fetch(process.env.EXPO_PUBLIC_LOGS_ENDPOINT, {
       method: 'POST',
       headers: {
@@ -35,3 +35,5 @@ export const reportErrorToRemote = async ({ error }) => {
   }
   return { success: true };
 };
+
+module.exports = { reportErrorToRemote };

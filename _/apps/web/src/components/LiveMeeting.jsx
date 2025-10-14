@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useMemo } from "react";
 import { motion } from "motion/react";
 import {
   Play,
@@ -21,15 +21,41 @@ export default function LiveMeeting() {
   const [audioFile, setAudioFile] = useState(null);
   const [transcriptionLoading, setTranscriptionLoading] = useState(false);
   const [summaryLoading, setSummaryLoading] = useState(false);
+  const [meetingLink, setMeetingLink] = useState("");
+  const [showEmbed, setShowEmbed] = useState(false);
   
   const queryClient = useQueryClient();
 
   const platforms = [
-    { name: "Google Meet", color: "bg-green-500" },
-    { name: "Zoom", color: "bg-blue-500" },
-    { name: "Microsoft Teams", color: "bg-purple-500" },
-    { name: "Skype", color: "bg-cyan-500" },
+    { name: "Google Meet", color: "bg-[#1A73E8]", icon: "https://cdn.simpleicons.org/googlemeet/ffffff" },
+    { name: "Zoom", color: "bg-[#2D8CFF]", icon: "https://cdn.simpleicons.org/zoom/ffffff" },
+    { name: "Microsoft Teams", color: "bg-[#6264A7]", icon: "https://cdn.simpleicons.org/microsoftteams/ffffff" },
+    { name: "Skype", color: "bg-[#00AFF0]", icon: "https://cdn.simpleicons.org/skype/ffffff" },
   ];
+
+  const placeholderForPlatform = useMemo(() => {
+    switch (selectedPlatform) {
+      case "Google Meet":
+        return "https://meet.google.com/xxxxx-xxxxx";
+      case "Zoom":
+        return "https://zoom.us/j/XXXXXXXXXX";
+      case "Microsoft Teams":
+        return "https://teams.microsoft.com/l/meetup-join/…";
+      case "Skype":
+        return "https://join.skype.com/XXXXXXXXXX";
+      default:
+        return "https://";
+    }
+  }, [selectedPlatform]);
+
+  const handleConnect = useCallback(() => {
+    if (!meetingLink || !/^https?:\/\//i.test(meetingLink)) return;
+    // Try to render inline; also open in a new tab as fallback
+    setShowEmbed(true);
+    try {
+      window.open(meetingLink, "_blank", "noopener,noreferrer");
+    } catch {}
+  }, [meetingLink]);
 
   // Mutation for transcription
   const transcribeMutation = useMutation({
@@ -191,12 +217,35 @@ export default function LiveMeeting() {
                 whileHover={{ scale: 1.02 }}
                 whileTap={{ scale: 0.98 }}
               >
-                <div className={`w-8 h-8 ${platform.color} rounded-lg mb-2 mx-auto`} />
+                <div className={`w-10 h-10 ${platform.color} rounded-lg mb-2 mx-auto flex items-center justify-center`}>
+                  <img src={platform.icon} alt={`${platform.name} logo`} className="w-6 h-6" />
+                </div>
                 <p className="text-sm font-medium text-black dark:text-white font-inter">
                   {platform.name}
                 </p>
               </motion.button>
             ))}
+          </div>
+
+          {/* Meeting link field appears once a platform is chosen */}
+          <div className="mt-6 grid grid-cols-1 md:grid-cols-[1fr_auto] gap-3">
+            <input
+              type="url"
+              inputMode="url"
+              value={meetingLink}
+              onChange={(e) => setMeetingLink(e.target.value)}
+              placeholder={`Meeting link (${placeholderForPlatform})`}
+              className="w-full px-4 py-2 border border-gray-200 dark:border-gray-600 rounded-lg bg-white dark:bg-[#262626] text-black dark:text-white font-inter"
+            />
+            <motion.button
+              onClick={handleConnect}
+              disabled={!meetingLink}
+              className="px-6 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 disabled:bg-gray-400 text-white font-medium"
+              whileHover={{ scale: meetingLink ? 1.02 : 1 }}
+              whileTap={{ scale: meetingLink ? 0.98 : 1 }}
+            >
+              Connect
+            </motion.button>
           </div>
         </motion.div>
 
@@ -316,6 +365,39 @@ export default function LiveMeeting() {
               )}
             </div>
           </motion.div>
+
+          {/* Embedded meeting preview (best-effort) */}
+          {showEmbed && meetingLink && (
+            <motion.div
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="bg-white dark:bg-[#1E1E1E] rounded-xl border border-[#E6E6E6] dark:border-[#333333] p-3 lg:col-span-2"
+            >
+              <div className="flex items-center justify-between mb-2">
+                <h3 className="text-lg font-bold text-black dark:text-white font-sora">Live Meeting</h3>
+                <a
+                  href={meetingLink}
+                  target="_blank"
+                  rel="noreferrer noopener"
+                  className="text-sm text-blue-600 hover:text-blue-700"
+                >
+                  Open in new tab
+                </a>
+              </div>
+              <div className="aspect-video w-full overflow-hidden rounded-lg border border-gray-200 dark:border-gray-600 bg-black">
+                <iframe
+                  title="meeting"
+                  src={meetingLink}
+                  className="w-full h-full"
+                  allow="camera; microphone; fullscreen; clipboard-read; clipboard-write; display-capture"
+                  referrerPolicy="no-referrer"
+                />
+              </div>
+              <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">
+                Some providers block embedding. If the video does not appear, use “Open in new tab”.
+              </p>
+            </motion.div>
+          )}
         </div>
 
         {/* Action Buttons */}

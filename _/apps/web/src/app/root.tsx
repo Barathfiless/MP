@@ -15,6 +15,8 @@ import {
   useEffect,
   useRef,
   useState,
+  lazy,
+  Suspense,
   type ReactNode,
   type FC,
   Component,
@@ -22,17 +24,22 @@ import {
 import './global.css';
 
 import fetch from '@/__create/fetch';
-// @ts-ignore
-import { SessionProvider } from '@auth/create/react';
 import { useNavigate } from 'react-router';
-import { serializeError } from 'serialize-error';
 import { Toaster } from 'sonner';
 // @ts-ignore
 import { LoadFonts } from 'virtual:load-fonts.jsx';
 import { HotReloadIndicator } from '../__create/HotReload';
 import { useSandboxStore } from '../__create/hmr-sandbox-store';
 import type { Route } from './+types/root';
-import { useDevServerHeartbeat } from '../__create/useDevServerHeartbeat';
+// Defer importing the client-only heartbeat hook until client render
+const Heartbeat = lazy(() =>
+  import('../__create/useDevServerHeartbeat').then((m) => ({
+    default: () => {
+      m.useDevServerHeartbeat();
+      return null;
+    },
+  }))
+);
 
 export const links = () => [];
 
@@ -114,10 +121,29 @@ function InternalErrorBoundary({ error: errorArg }: Route.ErrorBoundaryProps) {
         window.parent.postMessage(
           {
             type: 'sandbox:web:fix',
-            error: serializeError(error),
+            // load serialize-error only on client when needed
+            error: (() => {
+              try {
+                // This will be replaced asynchronously below; we send a minimal payload immediately
+                return { name: (error as any)?.name, message: (error as any)?.message, stack: (error as any)?.stack };
+              } catch {
+                return undefined;
+              }
+            })(),
           },
           '*'
         );
+        // Fire-and-forget: send a richer serialized error if available
+        import('serialize-error')
+          .then(({ serializeError }) => {
+            try {
+              window.parent.postMessage(
+                { type: 'sandbox:web:fix', error: serializeError(error) },
+                '*'
+              );
+            } catch {}
+          })
+          .catch(() => {});
         setIsOpen(false);
       }, [error]),
       isDisabled: !error,
@@ -127,7 +153,19 @@ function InternalErrorBoundary({ error: errorArg }: Route.ErrorBoundaryProps) {
   const { buttonProps: copyButtonProps } = useButton(
     {
       onPress: useCallback(() => {
-        navigator.clipboard.writeText(JSON.stringify(serializeError(error)));
+        import('serialize-error')
+          .then(({ serializeError }) => {
+            try {
+              navigator.clipboard.writeText(JSON.stringify(serializeError(error)));
+            } catch {}
+          })
+          .catch(() => {
+            try {
+              navigator.clipboard.writeText(
+                JSON.stringify({ name: (error as any)?.name, message: (error as any)?.message, stack: (error as any)?.stack })
+              );
+            } catch {}
+          });
       }, [error]),
     },
     useRef<HTMLButtonElement>(null)
@@ -338,7 +376,8 @@ export function Layout({ children }: { children: ReactNode }) {
   useHandshakeParent();
   useCodeGen();
   useRefresh();
-  useDevServerHeartbeat();
+  // Render heartbeat only on client to avoid SSR importing ESM-only deps
+  // that are used by the hook (e.g., react-idle-timer)
   const navigate = useNavigate();
   const location = useLocation();
   const pathname = location?.pathname;
@@ -371,6 +410,7 @@ export function Layout({ children }: { children: ReactNode }) {
       <head>
         <meta charSet="utf-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1" />
+        <link rel="preload" href="/avatar.png" as="image" />
         <Meta />
         <Links />
         <script type="module" src="/src/__create/dev-error-overlay.js"></script>
@@ -379,6 +419,9 @@ export function Layout({ children }: { children: ReactNode }) {
       </head>
       <body>
         <ClientOnly loader={() => children} />
+        <Suspense fallback={null}>
+          <Heartbeat />
+        </Suspense>
         <HotReloadIndicator />
         <Toaster position="bottom-right" />
         <ScrollRestoration />
@@ -390,9 +433,6 @@ export function Layout({ children }: { children: ReactNode }) {
 }
 
 export default function App() {
-  return (
-    <SessionProvider>
-      <Outlet />
-    </SessionProvider>
-  );
+  // Render without session provider to avoid SSR ESM errors during setup
+  return <Outlet />;
 }

@@ -1,4 +1,4 @@
-import sql from "@/app/api/utils/sql";
+import { meetingsCollection } from "@/app/api/utils/mongo";
 
 // GET - Fetch all meetings
 export async function GET(request) {
@@ -6,49 +6,15 @@ export async function GET(request) {
     const { searchParams } = new URL(request.url);
     const platform = searchParams.get('platform');
     const limit = searchParams.get('limit') || '10';
-    
-    let query = `
-      SELECT 
-        m.*,
-        COALESCE(
-          json_agg(
-            json_build_object(
-              'id', ai.id,
-              'task', ai.task,
-              'assigned_to', ai.assigned_to,
-              'deadline', ai.deadline,
-              'status', ai.status
-            )
-          ) FILTER (WHERE ai.id IS NOT NULL), 
-          '[]'::json
-        ) as action_items
-      FROM meetings m
-      LEFT JOIN action_items ai ON m.id = ai.meeting_id
-    `;
-    
-    const params = [];
-    let paramCount = 0;
-    
-    if (platform) {
-      paramCount++;
-      query += ` WHERE m.platform = $${paramCount}`;
-      params.push(platform);
-    }
-    
-    query += ` GROUP BY m.id ORDER BY m.date DESC`;
-    
-    if (limit) {
-      paramCount++;
-      query += ` LIMIT $${paramCount}`;
-      params.push(parseInt(limit));
-    }
-    
-    const meetings = await sql(query, params);
-    
-    return Response.json({ 
-      success: true, 
-      meetings: meetings 
-    });
+    const col = await meetingsCollection();
+    const query = platform && platform !== 'all' ? { platform } : {};
+    const docs = await col
+      .find(query)
+      .sort({ date: -1 })
+      .limit(parseInt(limit))
+      .toArray();
+    const meetings = docs.map((d) => ({ id: String(d._id), ...d }));
+    return Response.json({ success: true, meetings });
   } catch (error) {
     console.error('Error fetching meetings:', error);
     return Response.json(
@@ -69,17 +35,18 @@ export async function POST(request) {
         { status: 400 }
       );
     }
-    
-    const meeting = await sql`
-      INSERT INTO meetings (title, platform, duration, transcript, summary, flowchart_code)
-      VALUES (${title}, ${platform}, ${duration || null}, ${transcript || null}, ${summary || null}, ${flowchart_code || null})
-      RETURNING *
-    `;
-    
-    return Response.json({ 
-      success: true, 
-      meeting: meeting[0] 
-    });
+    const col = await meetingsCollection();
+    const doc = {
+      title,
+      platform,
+      duration: duration ?? null,
+      transcript: transcript ?? null,
+      summary: summary ?? null,
+      flowchart_code: flowchart_code ?? null,
+      date: new Date().toISOString(),
+    };
+    const { insertedId } = await col.insertOne(doc);
+    return Response.json({ success: true, meeting: { id: String(insertedId), ...doc } });
   } catch (error) {
     console.error('Error creating meeting:', error);
     return Response.json(

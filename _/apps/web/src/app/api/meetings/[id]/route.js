@@ -1,139 +1,47 @@
-import sql from "@/app/api/utils/sql";
+import { meetingsCollection } from "@/app/api/utils/mongo";
+import { ObjectId } from "mongodb";
 
 // GET - Fetch a single meeting by ID
-export async function GET(request, { params }) {
+export async function GET(_request, { params }) {
   try {
-    const { id } = params;
-    
-    const meeting = await sql`
-      SELECT 
-        m.*,
-        COALESCE(
-          json_agg(
-            json_build_object(
-              'id', ai.id,
-              'task', ai.task,
-              'assigned_to', ai.assigned_to,
-              'deadline', ai.deadline,
-              'status', ai.status
-            )
-          ) FILTER (WHERE ai.id IS NOT NULL), 
-          '[]'::json
-        ) as action_items
-      FROM meetings m
-      LEFT JOIN action_items ai ON m.id = ai.meeting_id
-      WHERE m.id = ${id}
-      GROUP BY m.id
-    `;
-    
-    if (meeting.length === 0) {
-      return Response.json(
-        { success: false, error: 'Meeting not found' },
-        { status: 404 }
-      );
-    }
-    
-    return Response.json({ 
-      success: true, 
-      meeting: meeting[0] 
-    });
+    const id = params.id;
+    const col = await meetingsCollection();
+    const doc = await col.findOne({ _id: new ObjectId(id) });
+    if (!doc) return Response.json({ success: false, error: 'Meeting not found' }, { status: 404 });
+    return Response.json({ success: true, meeting: { id, ...doc } });
   } catch (error) {
     console.error('Error fetching meeting:', error);
-    return Response.json(
-      { success: false, error: 'Failed to fetch meeting' },
-      { status: 500 }
-    );
+    return Response.json({ success: false, error: 'Failed to fetch meeting' }, { status: 500 });
   }
 }
 
 // PUT - Update a meeting
 export async function PUT(request, { params }) {
   try {
-    const { id } = params;
+    const id = params.id;
     const updates = await request.json();
-    
-    // Build dynamic update query
-    const setClause = [];
-    const values = [];
-    let paramCount = 0;
-    
-    const allowedFields = ['title', 'platform', 'duration', 'transcript', 'summary', 'flowchart_code'];
-    
-    for (const [key, value] of Object.entries(updates)) {
-      if (allowedFields.includes(key) && value !== undefined) {
-        paramCount++;
-        setClause.push(`${key} = $${paramCount}`);
-        values.push(value);
-      }
-    }
-    
-    if (setClause.length === 0) {
-      return Response.json(
-        { success: false, error: 'No valid fields to update' },
-        { status: 400 }
-      );
-    }
-    
-    paramCount++;
-    setClause.push(`updated_at = CURRENT_TIMESTAMP`);
-    values.push(id);
-    
-    const query = `
-      UPDATE meetings 
-      SET ${setClause.join(', ')}
-      WHERE id = $${paramCount}
-      RETURNING *
-    `;
-    
-    const result = await sql(query, values);
-    
-    if (result.length === 0) {
-      return Response.json(
-        { success: false, error: 'Meeting not found' },
-        { status: 404 }
-      );
-    }
-    
-    return Response.json({ 
-      success: true, 
-      meeting: result[0] 
-    });
+    const allowed = ['title', 'platform', 'duration', 'transcript', 'summary', 'flowchart_code', 'date'];
+    const $set = Object.fromEntries(Object.entries(updates).filter(([k, v]) => allowed.includes(k) && v !== undefined));
+    if (Object.keys($set).length === 0) return Response.json({ success: false, error: 'No valid fields to update' }, { status: 400 });
+    const col = await meetingsCollection();
+    const result = await col.findOneAndUpdate({ _id: new ObjectId(id) }, { $set }, { returnDocument: 'after' });
+    if (!result) return Response.json({ success: false, error: 'Meeting not found' }, { status: 404 });
+    return Response.json({ success: true, meeting: { id, ...result } });
   } catch (error) {
     console.error('Error updating meeting:', error);
-    return Response.json(
-      { success: false, error: 'Failed to update meeting' },
-      { status: 500 }
-    );
+    return Response.json({ success: false, error: 'Failed to update meeting' }, { status: 500 });
   }
 }
 
 // DELETE - Delete a meeting
-export async function DELETE(request, { params }) {
+export async function DELETE(_request, { params }) {
   try {
-    const { id } = params;
-    
-    const result = await sql`
-      DELETE FROM meetings 
-      WHERE id = ${id}
-      RETURNING id
-    `;
-    
-    if (result.length === 0) {
-      return Response.json(
-        { success: false, error: 'Meeting not found' },
-        { status: 404 }
-      );
-    }
-    
-    return Response.json({ 
-      success: true, 
-      message: 'Meeting deleted successfully' 
-    });
+    const id = params.id;
+    const col = await meetingsCollection();
+    await col.deleteOne({ _id: new ObjectId(id) });
+    return Response.json({ success: true });
   } catch (error) {
     console.error('Error deleting meeting:', error);
-    return Response.json(
-      { success: false, error: 'Failed to delete meeting' },
-      { status: 500 }
-    );
+    return Response.json({ success: false, error: 'Failed to delete meeting' }, { status: 500 });
   }
 }
