@@ -8,8 +8,7 @@ Run the App by
 2. npm install
 3. npx expo start -c --tunnel
 
-
-Build a full-stack AI-integrated web application named MEETPILOT – Smart Meeting Recap & Flowchart Assistant using React.js (frontend), Flask or FastAPI (backend), and Firebase/MongoDB (database).
+MEETPILOT – Smart Meeting Recap & Flowchart Assistant using React.js (frontend), Flask or FastAPI (backend), and Firebase/MongoDB (database).
 The purpose of the app is to integrate with real-time meeting platforms like Google Meet, Zoom, Microsoft Teams, and Skype, capture live conversations, transcribe, summarize, and visualize them into action items and flowcharts.
 Design it as a professional, modern, and responsive application using TailwindCSS and Framer Motion animations.
 🏗️ Project Structure:
